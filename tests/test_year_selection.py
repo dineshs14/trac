@@ -83,7 +83,7 @@ def test_selects_child_certificate_tax_year(page):
 def test_unconfirmed_selection_stops(page, monkeypatch):
     monkeypatch.setattr(year_selection, 'ELEMENT_WAIT_TIMEOUT_MS', 300)
     page.get_by_role('option', include_hidden=True).evaluate("el => el.removeAttribute('onclick')")
-    with pytest.raises(ElementNotFoundError, match='Could not select'):
+    with pytest.raises(ElementNotFoundError, match=r'Year control did not confirm|Could not select'):
         year_selection.select_flutter_year(page, '2026-27')
 
 
