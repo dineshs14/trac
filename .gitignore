@@ -1,0 +1,57 @@
+# ==========================================
+# TRACES Automation - Git Ignore Rules
+# ==========================================
+
+# 1. Data, Tracker & Excel Files (Confidential & Runtime Generated)
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+Master_Tracker/
+automation_tracker.xlsx
+
+# 2. Certificate Downloads & PDFs
+*.pdf
+Child_Certificates/
+Lower_TDS_Certificates/
+
+# 3. Browser Session & Runtime Output
+Process_Files/
+temp_downloads/
+browser_profile/
+logs/
+*.log
+
+# 4. Scratch & Debugging Artifacts
+scratch/
+*.png
+*.jpg
+*.jpeg
+*.html
+
+# 5. Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# 6. Python & Environment Caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+env/
+
+# 7. OS & Editor Artifacts
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp

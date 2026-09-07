@@ -1,0 +1,4 @@
+playwright>=1.45.0
+openpyxl>=3.1.2
+pdfplumber>=0.11.0
+pytest>=8.0.0
