@@ -27,7 +27,7 @@ from data.models import RunSummary
 from automation.session_manager import SessionManager, SessionExpiredError
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="TRACES Lower/Nil TDS Certificate Automation",
@@ -66,7 +66,7 @@ Tasks:
         default="2026-27",
         help="Financial Year (e.g. 2026-27, default: 2026-27)",
     )
-    return parser.parse_args()
+    return parser.parse_args(args)
 
 
 def main() -> None:
