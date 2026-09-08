@@ -94,6 +94,7 @@ class ChildCertificateDownloader:
         self.fy_dir = ensure_fy_subdirectory(CHILD_CERT_DIR, fy)
         from automation.flutter_child_download import FlutterChildDownload
         self.flutter = FlutterChildDownload(page, fy)
+        self._next_initiation_at = 0.0
 
     def run(self) -> RunSummary:
         """Execute the full Child Certificate download workflow."""
@@ -130,6 +131,9 @@ class ChildCertificateDownloader:
                     logger.error("Error processing child cert %s: %s",
                                  row.certificate_number, exc)
                     self.summary.failed += 1
+                finally:
+                    if self._next_initiation_at:
+                        self._next_initiation_at = time.monotonic() + 60
 
         except SessionLostError:
             logger.error("Session expired before processing could begin.")
@@ -257,6 +261,10 @@ class ChildCertificateDownloader:
 
             # Initiate download
             try:
+                self._wait_for_initiation_gap()
+                initiation_time = datetime.now()
+                # Also reserve the gap if submission succeeds but its response fails.
+                self._next_initiation_at = time.monotonic() + 60
                 self._initiate_child_download()
                 if is_flutter_portal(self.page) and self.flutter.initiated_at:
                     initiation_time = self.flutter.initiated_at
@@ -402,6 +410,16 @@ class ChildCertificateDownloader:
                     return
 
         raise ElementNotFoundError(f"Child certificate row not found: {cert_no}")
+
+    def _wait_for_initiation_gap(self) -> None:
+        """Keep a full minute between processing successive child requests."""
+        remaining = self._next_initiation_at - time.monotonic()
+        if remaining > 0:
+            logger.info("Waiting %.0f seconds before initiating the next Child Certificate.", remaining)
+        while remaining > 0:
+            assert_session_alive(self.page)
+            self.page.wait_for_timeout(min(remaining * 1000, 1000))
+            remaining = self._next_initiation_at - time.monotonic()
 
     def _initiate_child_download(self) -> None:
         """Click Initiate Download for the selected child certificate."""

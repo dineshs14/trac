@@ -36,3 +36,19 @@ def test_services_unreadable_page_is_reported_as_failure():
         summary = updater.run()
     assert summary.failed == 1
     assert summary.services_records_updated == 0
+
+
+def test_services_uses_menu_on_current_lower_page_without_root_reload():
+    from automation.navigation import navigate_to_services_page
+    from config import TRACES_DOWNLOAD_CERT_URL
+    page = MagicMock()
+    page.url = TRACES_DOWNLOAD_CERT_URL
+    page.get_by_role.return_value.count.return_value = 1
+    page.get_by_role.return_value.first.count.return_value = 1
+    page.get_by_text.return_value.last.count.return_value = 1
+    with patch('automation.navigation.is_flutter_portal', return_value=True), patch(
+        'automation.navigation.enable_flutter_semantics'
+    ), patch('automation.year_selection.select_flutter_services_year') as select_year:
+        navigate_to_services_page(page, '2026-27')
+    page.goto.assert_not_called()
+    select_year.assert_called_once_with(page, '2026-27')

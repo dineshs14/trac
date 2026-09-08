@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from playwright.sync_api import Page, Error as PlaywrightError
 
@@ -139,12 +139,7 @@ class ServicesUpdater:
         entries: List[Dict[str, str]] = []
 
         if is_flutter_portal(self.page):
-            leaf_texts = []
-            for item in self.page.locator("flt-semantics").all():
-                if item.locator(":scope > flt-semantics").count() == 0:
-                    text = (item.inner_text() or "").strip()
-                    if text:
-                        leaf_texts.append(text)
+            leaf_texts = self._flutter_leaf_texts()
 
             current: Dict[str, str] = {}
             expected = ""
@@ -251,80 +246,97 @@ class ServicesUpdater:
             self.summary.failed += 1
             return
 
-        # Extract certificate detail fields
-        details = self._extract_certificate_details()
+        try:
+            # Extract certificate detail fields
+            details = self._extract_certificate_details()
+            for field, expected in (("pan", pan), ("certificate_number", cert_no),
+                                    ("financial_year", fy)):
+                if details.get(field, "").strip() != expected:
+                    raise ElementNotFoundError(
+                        f"Services detail {field} does not match the selected certificate; "
+                        "Excel was not updated."
+                    )
 
-        # Expand and extract Consumption Details
-        consumption_entries = self._extract_consumption_details()
+            # Expand and extract Consumption Details
+            consumption_entries = self._extract_consumption_details()
 
-        # Aggregate by quarter
-        q_totals = self._aggregate_by_quarter(consumption_entries)
+            # Aggregate by quarter
+            q_totals = self._aggregate_by_quarter(consumption_entries)
 
-        # Calculate totals
-        total_consumed = sum(q_totals.values())
-        cert_limit = details.get("certificate_limit")
-        cert_limit_val = self._parse_amount(cert_limit) if cert_limit else None
+            # Calculate totals
+            total_consumed = sum(q_totals.values())
+            cert_limit = details.get("certificate_limit")
+            cert_limit_val = self._parse_amount(cert_limit) if cert_limit else None
 
-        portal_total = self._parse_amount(details.get("total_amount_consumed", ""))
+            portal_total = self._parse_amount(details.get("total_amount_consumed", ""))
+            rate = self._parse_amount(details.get("rate_as_per_certificate", "").rstrip("%"))
+            if cert_limit_val is None or portal_total is None or rate is None:
+                raise ElementNotFoundError(
+                    "Certificate limit, consumed total or TDS rate could not be read; "
+                    "Excel was not updated."
+                )
 
-        available = None
-        if cert_limit_val is not None:
-            available = cert_limit_val - total_consumed
+            available = None
+            if cert_limit_val is not None:
+                available = cert_limit_val - total_consumed
 
-        # Cross-check portal total vs calculated total
-        notes = ""
-        if portal_total is not None and abs(portal_total - total_consumed) > 0.01:
-            notes = f"CONSUMPTION_MISMATCH: portal_total={portal_total}, calculated={total_consumed}"
-            logger.warning("Consumption mismatch for %s: portal=%s, calculated=%s",
-                           cert_no, portal_total, total_consumed)
+            # Cross-check portal total vs calculated total
+            if portal_total is not None and abs(portal_total - total_consumed) > 0.01:
+                raise ElementNotFoundError(
+                    f"Consumption mismatch for {cert_no}: portal={portal_total}, "
+                    f"expanded rows={total_consumed}; Excel was not updated."
+                )
 
-        # Build update dict
-        updates: Dict[str, any] = {
-            "Date_of_Issue": details.get("date_of_issue", ""),
-            "Application_Form_No": details.get("application_form_no", ""),
-            "Applicable_Income_Tax_Act": details.get("applicable_income_tax_act", ""),
-            "Section": details.get("section", ""),
-            "Section_Code": details.get("section_code", ""),
-            "Nature_of_Payment": details.get("nature_of_payment", ""),
-            "TDS_Rate": details.get("rate_as_per_certificate", ""),
-            "Certificate_Limit": cert_limit_val,
-            "Q1_Amount_Consumed": q_totals.get("Q1", 0),
-            "Q2_Amount_Consumed": q_totals.get("Q2", 0),
-            "Q3_Amount_Consumed": q_totals.get("Q3", 0),
-            "Q4_Amount_Consumed": q_totals.get("Q4", 0),
-            "Total_Amount_Consumed": portal_total if portal_total is not None else total_consumed,
-            "Available_Amount": available,
-            "Date_of_Cancellation": details.get("date_of_cancellation", ""),
-            "Processing_Status": STATUS_SERVICES_UPDATED,
-        }
+            # Build update dict
+            updates: Dict[str, Any] = {
+                "Date_of_Issue": details.get("date_of_issue", ""),
+                "Application_Form_No": details.get("application_form_no", ""),
+                "Applicable_Income_Tax_Act": details.get("applicable_income_tax_act", ""),
+                "Section": details.get("section", ""),
+                "Section_Code": details.get("section_code", ""),
+                "Nature_of_Payment": details.get("nature_of_payment", ""),
+                "TDS_Rate": rate,
+                "Certificate_Limit": cert_limit_val,
+                "Q1_Amount_Consumed": q_totals.get("Q1", 0),
+                "Q2_Amount_Consumed": q_totals.get("Q2", 0),
+                "Q3_Amount_Consumed": q_totals.get("Q3", 0),
+                "Q4_Amount_Consumed": q_totals.get("Q4", 0),
+                "Total_Amount_Consumed": portal_total if portal_total is not None else total_consumed,
+                "Available_Amount": available,
+                "Date_of_Cancellation": details.get("date_of_cancellation", ""),
+                "Processing_Status": STATUS_SERVICES_UPDATED,
+            }
 
-        if notes:
-            updates["Notes"] = notes
+            validity = re.fullmatch(
+                r"(\d{2}[-/]\d{2}[-/]\d{4})\s+to\s+(\d{2}[-/]\d{2}[-/]\d{4})",
+                details.get("certificate_validity", ""), re.I,
+            )
+            if validity:
+                updates["Valid_From"], updates["Valid_To"] = validity.groups()
 
-        # Clean empty values
-        updates = {k: v for k, v in updates.items() if v is not None and v != ""}
+            # Clean empty values
+            updates = {k: v for k, v in updates.items() if v is not None and v != ""}
 
-        # Update Master Tracker
-        updated = self.master.update_services_data(pan, cert_no, fy, updates)
+            # Update Master Tracker
+            updated = self.master.update_services_data(pan, cert_no, fy, updates)
 
-        if updated:
-            self.summary.services_records_updated += 1
-            # Also update DB tracker if record exists
-            for cert_type in ["LOWER_TDS", "CHILD"]:
-                unique_key = f"{cert_type}|{fy}|{pan}|{cert_no}"
-                db_row = self.db.get_by_key(unique_key)
-                if db_row:
-                    self.db.update_status(unique_key, db_row["status"],
-                                          services_update_status="SUCCESS")
-                    break
-            logger.info("✓ Services data updated for %s", cert_no)
-        else:
-            logger.warning("No matching Master row for PAN=%s, Cert=%s, FY=%s",
-                           pan, cert_no, fy)
-            self.summary.failed += 1
-
-        # Navigate back to the list
-        self._go_back_to_list()
+            if updated:
+                self.summary.services_records_updated += 1
+                # Also update DB tracker if record exists
+                for cert_type in ["LOWER_TDS", "CHILD"]:
+                    unique_key = f"{cert_type}|{fy}|{pan}|{cert_no}"
+                    db_row = self.db.get_by_key(unique_key)
+                    if db_row:
+                        self.db.update_status(unique_key, db_row["status"],
+                                              services_update_status="SUCCESS")
+                        break
+                logger.info("✓ Services data updated for %s", cert_no)
+            else:
+                logger.warning("No matching Master row for PAN=%s, Cert=%s, FY=%s",
+                               pan, cert_no, fy)
+                self.summary.failed += 1
+        finally:
+            self._go_back_to_list()
 
     # ──────────────────────────────────────────
     # Portal Interaction
@@ -442,6 +454,11 @@ class ServicesUpdater:
         logger.debug("Extracted certificate details: %s", details)
         return details
 
+    def _flutter_leaf_texts(self) -> List[str]:
+        return [text.strip() for text in self.page.locator(
+            "flt-semantics:not(:has(flt-semantics))"
+        ).all_inner_texts() if text.strip()]
+
     def _extract_field_value(self, label: str) -> str:
         """Extract the value following a label on the page.
 
@@ -452,20 +469,12 @@ class ServicesUpdater:
         """
         try:
             if is_flutter_portal(self.page):
-                leaves = self.page.locator("flt-semantics").all()
-                for index, item in enumerate(leaves):
-                    if item.locator(":scope > flt-semantics").count() > 0:
-                        continue
-                    text = (item.inner_text() or "").strip()
-                    if text != label:
-                        continue
-                    for candidate in leaves[index + 1:]:
-                        if candidate.locator(":scope > flt-semantics").count() > 0:
-                            continue
-                        value = (candidate.inner_text() or "").strip()
-                        if value:
-                            return value
-                    return ""
+                leaves = self._flutter_leaf_texts()
+                for index, text in enumerate(leaves[:-1]):
+                    # The portal includes units in labels, e.g. Limit (₹).
+                    if re.sub(r"\s*\((?:₹|%)\)\s*$", "", text) == label:
+                        return leaves[index + 1]
+                return ""
 
             # Strategy 1: Find label in a table cell, get the next cell
             label_loc = self.page.get_by_text(label, exact=False)
@@ -520,10 +529,15 @@ class ServicesUpdater:
                 r"^(\S+)\s+(\d{4}-\d{2})\s+(Q[1-4])\s+(\S+)\s+"
                 r"([\d,]+(?:\.\d+)?)$"
             )
-            for item in self.page.locator("flt-semantics").all():
-                if item.locator(":scope > flt-semantics").count() > 0:
-                    continue
-                match = row_pattern.match((item.inner_text() or "").strip())
+            leaves = self._flutter_leaf_texts()
+            if any("certificate is unconsumed" in text.lower() for text in leaves):
+                return []
+            if "Token/Acknowledgement Number" not in leaves:
+                raise ElementNotFoundError(
+                    "Consumption Details did not expand; Excel was not updated."
+                )
+            for text in leaves:
+                match = row_pattern.match(text)
                 if not match:
                     continue
                 entries.append(ConsumptionEntry(
@@ -533,6 +547,10 @@ class ServicesUpdater:
                     form_type=match.group(4),
                     consumed_amount=self._parse_amount(match.group(5)) or 0.0,
                 ))
+            if not entries and self._parse_amount(
+                self._extract_field_value("Total Amount Consumed")
+            ) != 0:
+                raise ElementNotFoundError("Expanded consumption rows could not be read.")
             return entries
 
         # Click to expand Consumption Details

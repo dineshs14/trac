@@ -115,13 +115,10 @@ def main() -> None:
         from config import (
             TRACES_CHILD_CERT_URL,
             TRACES_DOWNLOAD_CERT_URL,
-            TRACES_DASHBOARD_URL,
         )
 
         target_url = (
-            TRACES_DASHBOARD_URL
-            if task == "services-update"
-            else TRACES_CHILD_CERT_URL
+            TRACES_CHILD_CERT_URL
             if task == "child-download"
             else TRACES_DOWNLOAD_CERT_URL
         )
@@ -163,7 +160,7 @@ def main() -> None:
             from automation.services_updater import ServicesUpdater
 
             # Re-authenticate for services page
-            session.ensure_authenticated(TRACES_DASHBOARD_URL)
+            session.ensure_authenticated(TRACES_DOWNLOAD_CERT_URL)
 
             updater = ServicesUpdater(
                 page=session.page,

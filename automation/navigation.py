@@ -128,7 +128,8 @@ def setup_child_certificate_download(page: Page, fy: str) -> None:
             assert_session_alive(page)
             page.wait_for_timeout(3000)
         enable_flutter_semantics(page)
-        _select_financial_year(page, fy, is_tax_year=True)
+        from automation.year_selection import select_flutter_child_year
+        select_flutter_child_year(page, fy)
         logger.info("Selected Child Certificate year %s.", fy)
 
         search = page.get_by_role("button", name=re.compile(r"^Search$", re.I))
@@ -176,15 +177,8 @@ def navigate_to_services_page(page: Page, fy: str) -> None:
     logger.info("Navigating to Services View Certificate page…")
 
     if is_flutter_portal(page):
-        # The Services Menu button only exists on the portal root (/auth).
-        # If we're on a sub-route (e.g. child cert page), navigate there first.
-        from config import TRACES_AUTH_URL
-        if not page.url.rstrip('/').endswith('/auth'):
-            logger.info("Navigating to portal root for Services Menu…")
-            page.goto(TRACES_AUTH_URL, wait_until="domcontentloaded",
-                      timeout=PAGE_LOAD_TIMEOUT_MS)
-            page.wait_for_timeout(3000)
-            assert_session_alive(page)
+        # Use the Services menu on the authenticated certificate page.
+        # Reloading /auth can send an otherwise valid session to login.
         enable_flutter_semantics(page)
         services_menu = page.get_by_role("button", name=re.compile(r"Services Menu", re.I)).first
         if services_menu.count() > 0:

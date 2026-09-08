@@ -104,10 +104,11 @@ def test_services_process_entry_end_to_end(mock_master, mock_tracker):
     with patch.object(updater, "_click_certificate_details"), \
          patch.object(updater, "_extract_certificate_details", return_value=mock_details), \
          patch.object(updater, "_extract_consumption_details", return_value=mock_consumption), \
-         patch.object(updater, "_go_back_to_list"):
+         patch.object(updater, "_go_back_to_list") as back:
         
         updater._process_entry(entry)
 
+    back.assert_called_once()
     assert updater.summary.services_records_updated == 1
     mock_master.update_services_data.assert_called_once()
     
@@ -123,3 +124,62 @@ def test_services_process_entry_end_to_end(mock_master, mock_tracker):
     assert updates["Total_Amount_Consumed"] == 100000.0
     assert updates["Available_Amount"] == 400000.0
     assert updates["Processing_Status"] == STATUS_SERVICES_UPDATED
+
+@pytest.mark.parametrize('label,value', [
+    ('Certificate Limit  (\u20b9)', '43,08,23,219.00'),
+    ('Rate as per Certificate (%)', '4.50'),
+    ('Total Amount Consumed (\u20b9)', '0.00'),
+])
+def test_flutter_fields_with_units(label, value):
+    updater = ServicesUpdater(MagicMock(), '2026-27', MagicMock(), MagicMock())
+    plain = label.split('(')[0].strip()
+    with patch('automation.services_updater.is_flutter_portal', return_value=True), patch.object(
+        updater, '_flutter_leaf_texts', return_value=[label, value]
+    ):
+        assert updater._extract_field_value(plain) == value
+
+
+@pytest.mark.parametrize('problem', ['identity', 'missing_limit', 'mismatch'])
+def test_invalid_extraction_never_overwrites_excel(problem):
+    from automation.portal_utils import ElementNotFoundError
+    master, db = MagicMock(), MagicMock()
+    updater = ServicesUpdater(MagicMock(), '2026-27', db, master)
+    entry = {'pan': 'AAAAA1234A', 'certificate_number': '1NA1234567', 'financial_year': '2026-27'}
+    details = dict(entry, certificate_limit='1000', total_amount_consumed='100', rate_as_per_certificate='1.5')
+    if problem == 'identity':
+        details['certificate_number'] = 'OTHER'
+    elif problem == 'missing_limit':
+        details.pop('certificate_limit')
+    else:
+        details['total_amount_consumed'] = '200'
+    with patch.object(updater, '_click_certificate_details'), patch.object(
+        updater, '_extract_certificate_details', return_value=details
+    ), patch.object(updater, '_extract_consumption_details', return_value=[
+        ConsumptionEntry(quarter='Q1', consumed_amount=100)
+    ]), patch.object(updater, '_go_back_to_list') as back:
+        with pytest.raises(ElementNotFoundError):
+            updater._process_entry(entry)
+        master.update_services_data.assert_not_called()
+        back.assert_called_once()
+
+
+def test_explicit_unconsumed_certificate_has_no_consumption_rows():
+    updater = ServicesUpdater(MagicMock(), '2026-27', MagicMock(), MagicMock())
+    updater.page.get_by_role.return_value.count.return_value = 0
+    with patch('automation.services_updater.is_flutter_portal', return_value=True), patch.object(
+        updater, '_flutter_leaf_texts', return_value=[
+            'Information: Certificate is unconsumed, therefore consumption details are not available.'
+        ]
+    ):
+        assert updater._extract_consumption_details() == []
+
+
+def test_collapsed_consumption_is_not_treated_as_zero():
+    from automation.portal_utils import ElementNotFoundError
+    updater = ServicesUpdater(MagicMock(), '2026-27', MagicMock(), MagicMock())
+    updater.page.get_by_role.return_value.count.return_value = 0
+    with patch('automation.services_updater.is_flutter_portal', return_value=True), patch.object(
+        updater, '_flutter_leaf_texts', return_value=['Consumption Details']
+    ):
+        with pytest.raises(ElementNotFoundError, match='did not expand'):
+            updater._extract_consumption_details()

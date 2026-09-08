@@ -550,8 +550,7 @@ class TracesAutomationGUI:
                 return
 
             target_url = (
-                TRACES_AUTH_URL if task == "services-update"
-                else TRACES_CHILD_CERT_URL if task == "child-download"
+                TRACES_CHILD_CERT_URL if task == "child-download"
                 else TRACES_DOWNLOAD_CERT_URL
             )
             self._session_manager.ensure_authenticated(target_url)
@@ -583,7 +582,7 @@ class TracesAutomationGUI:
                 self._update_progress(75 if task == "all" else 100, "Child certs complete")
 
             if task in ("services-update", "all"):
-                self._session_manager.ensure_authenticated(TRACES_DASHBOARD_URL)
+                self._session_manager.ensure_authenticated(TRACES_DOWNLOAD_CERT_URL)
                 from automation.services_updater import ServicesUpdater
                 updater = ServicesUpdater(
                     page=self._session_manager.page, fy=fy,

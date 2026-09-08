@@ -38,6 +38,7 @@ class FlutterChildDownload:
         self.page_number = 1
         self.selected: PortalCertificateRow | None = None
         self.initiated_at: datetime | None = None
+        self.submission_finished_at: datetime | None = None
 
     def _alive(self) -> None:
         if self.page.is_closed():
@@ -208,14 +209,15 @@ class FlutterChildDownload:
     def submit(self) -> None:
         if self.selected is None:
             raise ElementNotFoundError("No Child Certificate selected for initiation.")
-        button = self.page.get_by_role(
-            "button", name=re.compile(r"Initiate download button", re.I)
-        )
+        button = self.page.get_by_role("button", name="Initiate Download", exact=True)
         expect(button).to_have_count(1, timeout=ELEMENT_WAIT_TIMEOUT_MS)
         expect(button).to_be_enabled(timeout=ELEMENT_WAIT_TIMEOUT_MS)
         self.initiated_at = datetime.now()
-        button.click(force=True)
+        self.submission_finished_at = None
+        from automation.year_selection import _click_flutter_surface
+        _click_flutter_surface(self.page, button)
         self.page.wait_for_timeout(3000)
+        self.submission_finished_at = datetime.now()
         logger.info("Initiated Child Certificate %s.", self.selected.certificate_number)
 
     @property
@@ -245,7 +247,7 @@ class FlutterChildDownload:
         if cards.count() == 0:
             return None
         if self.initiated_at is None:
-            return cards.first
+            return None
 
         # The modal can lag behind initiation. Wait for a card whose displayed
         # date/minute matches the current request, then use the first such card.
@@ -268,17 +270,21 @@ class FlutterChildDownload:
                     )
                 except ValueError:
                     continue
-                delta = abs((card_time - self.initiated_at).total_seconds())
-                if delta <= 90:
+                # Submission can straddle a clock minute. Accept only minutes
+                # covered by this request's actual submission interval.
+                first_minute = self.initiated_at.replace(second=0, microsecond=0)
+                last_minute = (self.submission_finished_at or self.initiated_at).replace(
+                    second=0, microsecond=0
+                )
+                if first_minute <= card_time <= last_minute:
                     matching.append(card)
         if not matching:
             return None
-        # The modal is newest-first. After the one-minute publish delay, the
-        # first matching card is the current request. Prefer a card that has
-        # the real Download action over expired Re-Initiate entries.
-        for card in matching:
-            if card.get_by_role("button", name="Download", exact=True).count() == 1:
-                return card
+        if len(matching) > 1:
+            raise ElementNotFoundError(
+                "Multiple Child Certificate requests have the same initiation minute; "
+                "cannot identify the correct download."
+            )
         return matching[0]
 
     def _refresh_initiated_dialog(self) -> None:
@@ -336,13 +342,15 @@ class FlutterChildDownload:
         except ValueError:
             return False
         return (
-            abs((card_time - initiated).total_seconds()) <= 90
+            card_time == initiated.replace(second=0, microsecond=0)
             and cards.first.get_by_role("button", name="Download", exact=True).count() == 1
         )
 
     def download(self, initiation_time: datetime | None = None) -> Path:
         """Poll and download the timestamp-matched request from the modal."""
         if initiation_time is not None:
+            if initiation_time != self.initiated_at:
+                self.submission_finished_at = None
             self.initiated_at = initiation_time
         expect(self.initiated_dialog).to_be_visible(timeout=ELEMENT_WAIT_TIMEOUT_MS)
         if self.initiated_at is not None:
