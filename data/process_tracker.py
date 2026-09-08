@@ -19,6 +19,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.worksheet.worksheet import Worksheet
 
 from config import AUTOMATION_TRACKER_FILE, FAILED_RECORDS_FILE
+from utils.excel_save import save_workbook
 from utils.logger import logger
 
 # ──────────────────────────────────────────────
@@ -79,7 +80,7 @@ def _create_workbook(path: Path, columns: List[str]) -> None:
         ws.column_dimensions[cell.column_letter].width = max(len(col_name) + 2, 12)
 
     ws.freeze_panes = "A2"
-    wb.save(str(path))
+    save_workbook(wb, path)
     logger.debug("Created workbook: %s", path)
 
 
@@ -100,7 +101,7 @@ class ProcessTracker:
         data["Last_Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for col_idx, col_name in enumerate(AUTOMATION_COLUMNS, start=1):
             ws.cell(row=new_row, column=col_idx, value=data.get(col_name, ""))
-        wb.save(str(self.path))
+        save_workbook(wb, self.path)
 
     def update_record(self, unique_key: str, updates: Dict[str, str]) -> bool:
         """Find row by unique_key and update columns. Returns True if found."""
@@ -115,7 +116,7 @@ class ProcessTracker:
                     if col_name in AUTOMATION_COLUMNS:
                         col_idx = AUTOMATION_COLUMNS.index(col_name) + 1
                         ws.cell(row=row_num, column=col_idx, value=value)
-                wb.save(str(self.path))
+                save_workbook(wb, self.path)
                 return True
         # Not found — append instead
         updates["Unique_Key"] = unique_key
@@ -140,5 +141,5 @@ class FailedRecordsTracker:
         data["Created_At"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for col_idx, col_name in enumerate(FAILED_COLUMNS, start=1):
             ws.cell(row=new_row, column=col_idx, value=data.get(col_name, ""))
-        wb.save(str(self.path))
+        save_workbook(wb, self.path)
         logger.debug("Recorded failure: %s", data.get("Unique_Key", ""))

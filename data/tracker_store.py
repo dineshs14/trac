@@ -19,6 +19,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.worksheet.worksheet import Worksheet
 
 from config import AUTOMATION_TRACKER_FILE, STATUS_COMPLETED
+from utils.excel_save import save_workbook
 from utils.logger import logger
 
 # ──────────────────────────────────────────────
@@ -119,7 +120,7 @@ class TrackerStore:
             ws.column_dimensions[cell.column_letter].width = max(len(col_name) + 2, 14)
 
         ws.freeze_panes = "A2"
-        wb.save(str(self.path))
+        save_workbook(wb, self.path)
         logger.debug("Created tracker workbook: %s", self.path)
 
     def _col_index(self, col_name: str) -> int:
@@ -254,7 +255,7 @@ class TrackerStore:
             col_idx = self._col_index(col_name)
             ws.cell(row=new_row, column=col_idx, value=row_data.get(col_name, ""))
 
-        wb.save(str(self.path))
+        save_workbook(wb, self.path)
         wb.close()
 
         # Update cache
@@ -290,7 +291,7 @@ class TrackerStore:
                 ws.cell(row=excel_row, column=self._col_index(canon), value=val)
                 row[canon] = val
 
-        wb.save(str(self.path))
+        save_workbook(wb, self.path)
         wb.close()
 
         # Update cache
@@ -352,7 +353,7 @@ class TrackerStore:
                 count += 1
 
         if count > 0:
-            wb.save(str(self.path))
+            save_workbook(wb, self.path)
         wb.close()
 
         logger.info("Reset %d failed records to DISCOVERED for FY %s", count, fy)

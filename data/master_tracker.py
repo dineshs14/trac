@@ -21,6 +21,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from config import MASTER_TRACKER_FILE, MASTER_COLUMNS, MASTER_SHEET_NAME
 from data.models import CertificateRecord
+from utils.excel_save import save_workbook
 from utils.logger import logger
 
 
@@ -64,7 +65,7 @@ class MasterTracker:
                 len(col_name) + 4, 14
             )
 
-        wb.save(str(self.path))
+        save_workbook(wb, self.path)
         logger.info("Created Master Tracker: %s", self.path)
 
     # ── Key helpers ─────────────────────────────
@@ -200,7 +201,7 @@ class MasterTracker:
                 new_val = data.get(col_name)
                 if new_val is not None and new_val != "":
                     ws.cell(row=existing_row, column=col_idx, value=new_val)
-            wb.save(str(self.path))
+            save_workbook(wb, self.path)
             logger.debug("Master updated row %d: %s", existing_row, record.unique_key)
             return "UPDATED"
         else:
@@ -213,7 +214,7 @@ class MasterTracker:
             for col_name in MASTER_COLUMNS:
                 col_idx = self._col_index(col_name)
                 ws.cell(row=new_row, column=col_idx, value=data.get(col_name, ""))
-            wb.save(str(self.path))
+            save_workbook(wb, self.path)
             logger.debug("Master added row %d: %s", new_row, record.unique_key)
             return "ADDED"
 
@@ -246,7 +247,7 @@ class MasterTracker:
                 col_idx = self._col_index(col_name)
                 ws.cell(row=row_num, column=col_idx, value=value)
 
-        wb.save(str(self.path))
+        save_workbook(wb, self.path)
         logger.debug(
             "Services data updated row %d: PAN=%s, Cert=%s",
             row_num, pan, cert_no,
